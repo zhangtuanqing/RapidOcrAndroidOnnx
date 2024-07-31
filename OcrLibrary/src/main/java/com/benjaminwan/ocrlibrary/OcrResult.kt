@@ -23,7 +23,9 @@ data class Point(var x: Int, var y: Int) : Parcelable
 
 @Parcelize
 data class TextBlock(
-    val boxPoint: ArrayList<Point>, var boxScore: Float,
+    val boxPoint: ArrayList<Point>,
+    val charPoint: ArrayList<Point>, val boundingPoint: ArrayList<Point>,
+    var boxScore: Float,
     val angleIndex: Int, val angleScore: Float, val angleTime: Double,
     val text: String, val charScores: FloatArray, val crnnTime: Double,
     val blockTime: Double
@@ -35,6 +37,8 @@ data class TextBlock(
         other as TextBlock
 
         if (boxPoint != other.boxPoint) return false
+        if (charPoint != other.charPoint) return false
+        if (boundingPoint != other.boundingPoint) return false
         if (boxScore != other.boxScore) return false
         if (angleIndex != other.angleIndex) return false
         if (angleScore != other.angleScore) return false
@@ -49,7 +53,9 @@ data class TextBlock(
 
     override fun hashCode(): Int {
         var result = boxPoint.hashCode()
+        result = 31 * result + charPoint.hashCode()
         result = 31 * result + boxScore.hashCode()
+        result = 31 * result + boundingPoint.hashCode()
         result = 31 * result + angleIndex
         result = 31 * result + angleScore.hashCode()
         result = 31 * result + angleTime.hashCode()

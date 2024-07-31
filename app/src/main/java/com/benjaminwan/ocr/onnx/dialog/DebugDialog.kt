@@ -1,6 +1,7 @@
 package com.benjaminwan.ocr.onnx.dialog
 
 import android.os.Bundle
+import android.util.Log
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.View
@@ -68,6 +69,19 @@ class DebugDialog : BaseDialog(), View.OnClickListener {
             textBlocks.withIndex().forEach { (id, item) ->
                 val boxPointStr = item.boxPoint.map { "[${it.x},${it.y}]" }.joinToString()
                 val charScoresStr = item.charScores.map { it.format("#0.00") }.joinToString()
+
+                var charPointStr = ""
+                var index = 0;
+                item.charPoint.chunked(4).forEach { charPoint ->
+                    var charInfo = item.text[index]
+                    Log.i("Debug", "charInfo:$charInfo")
+                    charPointStr += "$charInfo: "
+                    val str = charPoint.joinToString { "[${it.x},${it.y}]" }
+                    charPointStr += str
+                    charPointStr += "\n"
+                    index++;
+                }
+
                 debugItemView {
                     id("debug view $id")
                     index("$id")
@@ -80,6 +94,7 @@ class DebugDialog : BaseDialog(), View.OnClickListener {
                     charScores(charScoresStr)
                     crnnTime(item.crnnTime.format("#0.00") + "ms")
                     blockTime(item.blockTime.format("#0.00") + "ms")
+                    charPoints(charPointStr)
                 }
             }
         }

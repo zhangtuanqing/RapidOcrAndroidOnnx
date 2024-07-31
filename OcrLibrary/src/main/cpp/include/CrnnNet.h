@@ -32,6 +32,7 @@ private:
 
     const float meanValues[3] = {127.5, 127.5, 127.5};
     const float normValues[3] = {1.0 / 127.5, 1.0 / 127.5, 1.0 / 127.5};
+    // V2模型修改为32，V3或者V4模型修改为48
     const int dstHeight = 48;
 
     std::vector<std::string> keys;

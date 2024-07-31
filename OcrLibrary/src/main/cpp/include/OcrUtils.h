@@ -15,7 +15,7 @@
 #define LOGW(...) __android_log_print(ANDROID_LOG_WARN,TAG,__VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR,TAG,__VA_ARGS__)
 
-#define __ENABLE_CONSOLE__ false
+#define __ENABLE_CONSOLE__ true
 #define Logger(format, ...) {\
   if(__ENABLE_CONSOLE__) LOGI(format,##__VA_ARGS__); \
 }
@@ -65,6 +65,8 @@ std::vector<cv::Point2f> getBox(const cv::RotatedRect &rect);
 
 void drawTextBox(cv::Mat &boxImg, cv::RotatedRect &rect, int thickness);
 
+void drawTextBoxBlue(cv::Mat &boxImg, const std::vector<cv::Point> &box, int thickness);
+
 void drawTextBox(cv::Mat &boxImg, const std::vector<cv::Point> &box, int thickness);
 
 void drawTextBoxes(cv::Mat &boxImg, std::vector<TextBox> &textBoxes, int thickness);
@@ -78,6 +80,8 @@ cv::Mat getRotateCropImage(const cv::Mat &src, std::vector<cv::Point> box);
 cv::Mat adjustTargetImg(cv::Mat &src, int dstWidth, int dstHeight);
 
 std::vector<cv::Point2f> getMinBoxes(const cv::RotatedRect &boxRect, float &maxSideLen);
+
+std::vector<cv::Point> getMinBoxes(const std::vector<cv::Point> &inVec);
 
 float boxScoreFast(const std::vector<cv::Point2f> &boxes, const cv::Mat &pred);
 

@@ -27,6 +27,9 @@ struct Angle {
 struct TextLine {
     std::string text;
     std::vector<float> charScores;
+    std::vector<int> charColIndex;
+    std::vector<int> charColumNum;
+    int colCount;
     double time;
 };
 
@@ -40,6 +43,8 @@ struct TextBlock {
     std::vector<float> charScores;
     double crnnTime;
     double blockTime;
+    std::vector<cv::Point> charPoints;
+    std::vector<cv::Point> boxBoundingPoint;
 };
 
 struct OcrResult {

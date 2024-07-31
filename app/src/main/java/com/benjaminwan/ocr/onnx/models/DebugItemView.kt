@@ -56,6 +56,9 @@ class DebugItemView @JvmOverloads constructor(
     @TextProp
     lateinit var blockTime: CharSequence
 
+    @TextProp
+    lateinit var charPoints: CharSequence
+
     @AfterPropsSet
     fun useProps() {
         binding.blockIndexTv.text = index
@@ -68,5 +71,6 @@ class DebugItemView @JvmOverloads constructor(
         binding.content.charScoresTv.text = charScores
         binding.content.crnnTimeTv.text = crnnTime
         binding.content.blockTimeTv.text = blockTime
+        binding.content.charPointTv.text = charPoints
     }
 }
