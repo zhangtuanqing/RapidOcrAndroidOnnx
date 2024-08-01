@@ -3,10 +3,13 @@ package com.benjaminwan.ocrlibrary
 import android.content.Context
 import android.content.res.AssetManager
 import android.graphics.Bitmap
+import android.os.SystemClock
+import android.util.Log
 
 class OcrEngine(context: Context) {
     companion object {
         const val numThread: Int = 4
+        const val TAG = "OcrEngine"
     }
 
     init {
@@ -31,7 +34,7 @@ class OcrEngine(context: Context) {
     private fun convertNativeOcrResult(srcOcrResult: OcrResult, width: Int, height: Int, requestId: String): ImageOcrResponse? {
         val ocrRes = mutableListOf<ImageOcrResponse.OcrRecognize>()
         srcOcrResult.textBlocks.forEach { textBlock ->
-            if (!textBlock.text.isNullOrEmpty()) {
+            if (!textBlock.text.isNullOrBlank()) {
                 val textBox = textBlock.boxPoint.flatMap { listOf(it.x.toFloat(), it.y.toFloat()) }
                 val textBoundingBox = ImageOcrResponse.OcrRecognize.BoundingBox(
                     left = textBlock.boundingPoint[0].x.toFloat(),
@@ -41,9 +44,13 @@ class OcrEngine(context: Context) {
                 )
 
                 val charInfo = mutableListOf<ImageOcrResponse.OcrRecognize.CharBoundingInfo>()
+                var validCharNum = 0
                 textBlock.charPoint.chunked(4).forEachIndexed() { index, it ->
                     val charBoundingPoint = it.flatMap { listOf(it.x.toFloat(), it.y.toFloat()) }
                     val word = textBlock.text[index]
+                    if (textBlock.charScores[index] > 0.8) {
+                        validCharNum++;
+                    }
                     charInfo.add(
                         ImageOcrResponse.OcrRecognize.CharBoundingInfo(
                             charBoundingPoint,
@@ -51,11 +58,15 @@ class OcrEngine(context: Context) {
                         )
                     )
                 }
-                ocrRes.add(
-                    ImageOcrResponse.OcrRecognize(
-                        textBlock.text, textBoundingBox, textBox, charInfo
+                if (validCharNum > 0) {
+                    ocrRes.add(
+                        ImageOcrResponse.OcrRecognize(
+                            textBlock.text, textBoundingBox, textBox, charInfo
+                        )
                     )
-                )
+                } else {
+                    Log.e(TAG, "filter low score text: " + textBlock.text);
+                }
             }
         }
         return ImageOcrResponse(ocrRes, requestId, width, height)
@@ -69,10 +80,12 @@ class OcrEngine(context: Context) {
         if (maxSideLen >= 960) {
             maxSideLen = (maxSideLen * 0.6f).toInt()
         }
+        val startTime = SystemClock.elapsedRealtime();
         val ocrResult = detect(input, dstBitmap, 0, maxSideLen, 0.35f, 0.85f, 1.5f,
             doAngle = true,
             mostAngle = true
         )
+        Log.i(TAG, "textOcrDetectCost: ${SystemClock.elapsedRealtime() - startTime} ms")
         val ocrResponse = convertNativeOcrResult(ocrResult, input.width, input.height, requestId)
         return ocrResponse
     }

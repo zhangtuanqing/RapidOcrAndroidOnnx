@@ -14,7 +14,7 @@ void OcrLite::init(JNIEnv *jniEnv, jobject assetManager, int numThread, std::str
                    std::string clsName, std::string recName, std::string keysName) {
     AAssetManager *mgr = AAssetManager_fromJava(jniEnv, assetManager);
     if (mgr == NULL) {
-        LOGE(" %s", "AAssetManager==NULL");
+        LOGE(" %s", "AssetManager==NULL");
     }
 
     Logger("--- Init DbNet ---\n");
@@ -61,24 +61,97 @@ std::wstring convertStringToWString(const std::string& str) {
     return converter.from_bytes(str);
 }
 
-bool textBoxCompare(const TextBox &a, const TextBox &b) {
-    auto p0 = a.boxPoint[0];
-    auto p1 = b.boxPoint[0];
-    if (p0.x == p1.x) {
-        return p0.y < p1.y;
-    } else if (p0.y == p1.y) {
-        return p0.x < p1.x;
-    } else {
-        return p0.x < p1.x;
-    }
+bool pointXCompare(const cv::Point &a, const cv::Point  &b) {
+    return a.x < b.x;
 }
 
 bool pointYCompare(const cv::Point &a, const cv::Point  &b) {
     return a.y < b.y;
 }
 
-bool pointXCompare(const cv::Point &a, const cv::Point  &b) {
-    return a.x < b.x;
+bool textBoxCompareY(const TextBox &a, const TextBox &b) {
+    auto rotate_rect_a = cv::minAreaRect(a.boxPoint);
+    auto rotate_rect_b = cv::minAreaRect(b.boxPoint);
+    auto aMinY = std::min_element(a.boxPoint.begin(), a.boxPoint.end(), pointYCompare);
+    auto bMinY = std::min_element(b.boxPoint.begin(), b.boxPoint.end(), pointYCompare);
+    return aMinY->y < bMinY->y;
+}
+
+bool textBoxCompareX(const TextBox &a, const TextBox &b) {
+    auto rotate_rect_a = cv::minAreaRect(a.boxPoint);
+    auto rotate_rect_b = cv::minAreaRect(b.boxPoint);
+    auto aMinX = std::min_element(a.boxPoint.begin(), a.boxPoint.end(), pointXCompare);
+    auto bMinX = std::min_element(b.boxPoint.begin(), b.boxPoint.end(), pointXCompare);
+    return aMinX->x < bMinX->x;
+}
+
+bool lineCompare(const std::vector<TextBox> &a, const std::vector<TextBox> &b) {
+    auto aLineYPos = cv::minAreaRect(a[0].boxPoint).boundingRect().y;
+    auto bLineYPos = cv::minAreaRect(b[0].boxPoint).boundingRect().y;
+    return aLineYPos < bLineYPos;
+}
+
+/**
+ * 对模型给出的文本框排序
+ * @param textBoxes
+ * @return
+ */
+std::vector<TextBox> sortTextBoxes(std::vector<TextBox>& textBoxes) {
+    auto threshHold = (int) (cv::minAreaRect(textBoxes[0].boxPoint).boundingRect().height / 2.0);
+    std::vector<std::vector<TextBox>> textLines;
+    std::vector<TextBox> firstLine;
+    firstLine.emplace_back(textBoxes[0]);
+    textLines.emplace_back(firstLine);
+    // 按照Y 方向先将所有文本框分成一行一行的，阈值定为第一个文本框的一半（大致在一行就归为一行)
+    for (auto i = 1; i < textBoxes.size(); i++) {
+        auto find = false;
+        auto curTextBbox = cv::minAreaRect(textBoxes[i].boxPoint).boundingRect();
+        for (auto j = 0; j < textLines.size(); j++) {
+            auto curLineTopPos = cv::minAreaRect(textLines[j][0].boxPoint).boundingRect().y;
+            auto curRectTopPos = curTextBbox.y;
+            auto ignoreCurLine = false;
+            // 如果当前文本框和当前行内的文本框相交，那么不计算到当前行，避免倾斜文本框时排序不正确
+            for (auto lineTextBox: textLines[j]) {
+                auto curBbox = cv::minAreaRect(lineTextBox.boxPoint).boundingRect();
+                auto intersectRect = curBbox & curTextBbox;
+                if (!intersectRect.empty()) {
+                    ignoreCurLine = true;
+                    break;
+                }
+            }
+
+            if (!ignoreCurLine) {
+                auto diff = std::abs(curRectTopPos - curLineTopPos);
+                if (diff < threshHold) {
+                    textLines[j].emplace_back(textBoxes[i]);
+                    find = true;
+                    break;
+                }
+            }
+        }
+        if (!find) {
+            auto newLine = std::vector<TextBox>();
+            threshHold = (int) (cv::minAreaRect(textBoxes[i].boxPoint).boundingRect().height / 2.0);
+            newLine.emplace_back(textBoxes[i]);
+            textLines.emplace_back(newLine);
+        }
+    }
+
+    // 对每一行内部的文本框进行X方向的排序
+    for (auto i = 0; i < textLines.size(); i++) {
+        std::sort(textLines[i].begin(), textLines[i].end(), textBoxCompareX);
+    }
+
+    // 对每一行进行垂直方向的排序
+    std::sort(textLines.begin(), textLines.end(), lineCompare);
+
+    // 将二维的文本框数组转换为一维的数组
+    std::vector<TextBox> flatTextBoxes;
+    for (const auto line : textLines) {
+        flatTextBoxes.insert(flatTextBoxes.end(), line.begin(), line.end());
+    }
+
+    return flatTextBoxes;
 }
 
 OcrResult OcrLite::detect(cv::Mat &src, cv::Rect &originRect, ScaleParam &scale,
@@ -95,23 +168,25 @@ OcrResult OcrLite::detect(cv::Mat &src, cv::Rect &originRect, ScaleParam &scale,
 
     Logger("---------- step: dbNet getTextBoxes ----------");
     double startTime = getCurrentTime();
-    std::vector<TextBox> textBoxes = dbNet.getTextBoxes(src, scale, boxScoreThresh, boxThresh, unClipRatio);
-    Logger("TextBoxesSize(%ld)", textBoxes.size());
+    std::vector<TextBox> rawTextBoxes = dbNet.getTextBoxes(src, scale, boxScoreThresh, boxThresh, unClipRatio);
+    Logger("TextBoxesSize(%ld)", rawTextBoxes.size());
     double endDbNetTime = getCurrentTime();
     double dbNetTime = endDbNetTime - startTime;
     Logger("dbNetTime(%fms)", dbNetTime);
 
-    for (int i = 0; i < textBoxes.size(); ++i) {
+    for (int i = 0; i < rawTextBoxes.size(); ++i) {
         Logger("TextBox[%d][score(%f),[x: %d, y: %d], [x: %d, y: %d], [x: %d, y: %d], [x: %d, y: %d]]",
                i,
-               textBoxes[i].score,
-               textBoxes[i].boxPoint[0].x, textBoxes[i].boxPoint[0].y,
-               textBoxes[i].boxPoint[1].x, textBoxes[i].boxPoint[1].y,
-               textBoxes[i].boxPoint[2].x, textBoxes[i].boxPoint[2].y,
-               textBoxes[i].boxPoint[3].x, textBoxes[i].boxPoint[3].y);
+               rawTextBoxes[i].score,
+               rawTextBoxes[i].boxPoint[0].x, rawTextBoxes[i].boxPoint[0].y,
+               rawTextBoxes[i].boxPoint[1].x, rawTextBoxes[i].boxPoint[1].y,
+               rawTextBoxes[i].boxPoint[2].x, rawTextBoxes[i].boxPoint[2].y,
+               rawTextBoxes[i].boxPoint[3].x, rawTextBoxes[i].boxPoint[3].y);
     }
 
-    std::sort(textBoxes.begin(), textBoxes.end(), textBoxCompare);
+    // 按照包围矩形的中心从上到下，从左到右排序
+    Logger("--------- step: sortTextBoxes -----------")
+    auto textBoxes = sortTextBoxes(rawTextBoxes);
 
     Logger("---------- step: drawTextBoxes ----------");
     drawTextBoxes(textBoxPaddingImg, textBoxes, thickness);
@@ -138,18 +213,21 @@ OcrResult OcrLite::detect(cv::Mat &src, cv::Rect &originRect, ScaleParam &scale,
     Logger("---------- step: crnnNet getTextLine ----------");
     std::vector<TextLine> textLines = crnnNet.getTextLines(partImages);
     //Log TextLines
-    for (int i = 0; i < textLines.size(); ++i) {
-        Logger("textLine[%d](%s)", i, textLines[i].text.c_str());
-        std::ostringstream txtScores;
-        for (int s = 0; s < textLines[i].charScores.size(); ++s) {
-            if (s == 0) {
-                txtScores << textLines[i].charScores[s];
-            } else {
-                txtScores << " ," << textLines[i].charScores[s];
+    bool logTextLines = false;
+    if (logTextLines) {
+        for (int i = 0; i < textLines.size(); ++i) {
+            Logger("textLine[%d](%s)", i, textLines[i].text.c_str());
+            std::ostringstream txtScores;
+            for (int s = 0; s < textLines[i].charScores.size(); ++s) {
+                if (s == 0) {
+                    txtScores << textLines[i].charScores[s];
+                } else {
+                    txtScores << " ," << textLines[i].charScores[s];
+                }
             }
+            Logger("textScores[%d]{%s}", i, std::string(txtScores.str()).c_str());
+            Logger("crnnTime[%d](%fms)", i, textLines[i].time);
         }
-        Logger("textScores[%d]{%s}", i, std::string(txtScores.str()).c_str());
-        Logger("crnnTime[%d](%fms)", i, textLines[i].time);
     }
 
     std::vector<TextBlock> textBlocks;
@@ -164,7 +242,7 @@ OcrResult OcrLite::detect(cv::Mat &src, cv::Rect &originRect, ScaleParam &scale,
                             angles[i].time, textLines[i].text, textLines[i].charScores, textLines[i].time,
                             angles[i].time + textLines[i].time};
 
-
+        Logger("TextLine[%d](%s) calculate char position", i, textLines[i].text.c_str());
         textBlock.charPoints = std::vector<cv::Point>();
         auto minXPoint = std::min_element(&(textBoxes[i].boxPoint[0]), &(textBoxes[i].boxPoint[3]), pointXCompare);
         auto maxXPoint = std::max_element(&(textBoxes[i].boxPoint[0]), &(textBoxes[i].boxPoint[3]), pointXCompare);
@@ -214,19 +292,23 @@ OcrResult OcrLite::detect(cv::Mat &src, cv::Rect &originRect, ScaleParam &scale,
             charBox[1] = cv::Point(x1, y1);
             charBox[2] = cv::Point(x2, y2);
             charBox[3] = cv::Point(x3, y3);
-            auto color = cv::Scalar(255, 0, 0);// R(255) G(0) B(0)
 
-//            drawTextBoxBlue(textBoxPaddingImg, charBox, 1);
-
-            float xPos = textBoxes[i].boxPoint[0].x + (curColIndex * longSideLen / totalColumns) * angleCos;
-            float yPos = (textBoxes[i].boxPoint[0].y + boxH / 2) + factor * (curColIndex * longSideLen / totalColumns) * angleSin;
-            cv::drawMarker(textBoxPaddingImg,  cv::Point(xPos, yPos), color, cv::MarkerTypes::MARKER_CROSS, 8, 1);
-
+            auto drawCharBox = false;
+            if (drawCharBox) {
+                auto markerColor = cv::Scalar(255, 0, 0);
+                drawTextBoxBlue(textBoxPaddingImg, charBox, 1);
+                float xPos = textBoxes[i].boxPoint[0].x +
+                             (curColIndex * longSideLen / totalColumns) * angleCos;
+                float yPos = (textBoxes[i].boxPoint[0].y + boxH / 2) +
+                             factor * (curColIndex * longSideLen / totalColumns) * angleSin;
+                cv::drawMarker(textBoxPaddingImg, cv::Point(xPos, yPos), markerColor,
+                               cv::MarkerTypes::MARKER_CROSS, 8, 1);
+            }
             for (auto m = 0; m < 4; m++) {
                 textBlock.charPoints.emplace_back(cv::Point(charBox.at(m).x - padding, charBox.at(m).y - padding));
             }
         }
-        auto minSideLen = 0.0f;
+
         textBlock.boxBoundingPoint = getMinBoxes(boxPoint);
 
         textBlocks.emplace_back(textBlock);
