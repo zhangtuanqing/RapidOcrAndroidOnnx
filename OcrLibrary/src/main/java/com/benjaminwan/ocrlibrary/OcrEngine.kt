@@ -79,6 +79,9 @@ class OcrEngine(context: Context) {
         var maxSideLen = kotlin.math.max(input.width, input.height)
         if (maxSideLen >= 960) {
             maxSideLen = (maxSideLen * 0.6f).toInt()
+            if (maxSideLen > 960) {
+                maxSideLen = 960
+            }
         }
         val startTime = SystemClock.elapsedRealtime();
         val ocrResult = detect(input, dstBitmap, 0, maxSideLen, 0.35f, 0.85f, 1.5f,

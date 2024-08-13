@@ -189,19 +189,21 @@ OcrResult OcrLite::detect(cv::Mat &src, cv::Rect &originRect, ScaleParam &scale,
     auto textBoxes = sortTextBoxes(rawTextBoxes);
 
     Logger("---------- step: drawTextBoxes ----------");
-    drawTextBoxes(textBoxPaddingImg, textBoxes, thickness);
+    // drawTextBoxes(textBoxPaddingImg, textBoxes, thickness);
 
     //---------- getPartImages ----------
+    double getPartImageStartTime = getCurrentTime();
     std::vector<cv::Mat> partImages = getPartImages(src, textBoxes);
-
+    double getPartImageEndTime = getCurrentTime();
+    Logger("getPartImageCost: %f ms", (getPartImageEndTime - getPartImageStartTime));
     Logger("---------- step: angleNet getAngles ----------");
     std::vector<Angle> angles;
     angles = angleNet.getAngles(partImages, doAngle, mostAngle);
 
     //Log Angles
-    for (int i = 0; i < angles.size(); ++i) {
-        Logger("angle[%d][index(%d), score(%f), time(%fms)]", i, angles[i].index, angles[i].score, angles[i].time);
-    }
+//    for (int i = 0; i < angles.size(); ++i) {
+//        Logger("angle[%d][index(%d), score(%f), time(%fms)]", i, angles[i].index, angles[i].score, angles[i].time);
+//    }
 
     //Rotate partImgs
     for (int i = 0; i < partImages.size(); ++i) {
@@ -209,7 +211,8 @@ OcrResult OcrLite::detect(cv::Mat &src, cv::Rect &originRect, ScaleParam &scale,
             partImages.at(i) = matRotateClockWise180(partImages[i]);
         }
     }
-
+    double getAnglesEndTime = getCurrentTime();
+    Logger("getAnglesCost: %f ms", (getAnglesEndTime - getPartImageEndTime));
     Logger("---------- step: crnnNet getTextLine ----------");
     std::vector<TextLine> textLines = crnnNet.getTextLines(partImages);
     //Log TextLines
@@ -316,8 +319,9 @@ OcrResult OcrLite::detect(cv::Mat &src, cv::Rect &originRect, ScaleParam &scale,
 
     double endTime = getCurrentTime();
     double fullTime = endTime - startTime;
+    Logger("recognizeCost: %f ms", (endTime - getAnglesEndTime));
     Logger("=====End detect=====");
-    Logger("FullDetectTime(%fms)", fullTime);
+    Logger("FullDetectTimeCost(%fms)", fullTime);
 
     //cropped to original size
     cv::Mat textBoxImg;
